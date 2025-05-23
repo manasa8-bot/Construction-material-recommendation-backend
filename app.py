@@ -2,8 +2,6 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from bson.objectid import ObjectId
 from pymongo import MongoClient
-import bcrypt
-import jwt
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import datetime
 
@@ -25,88 +23,6 @@ admin_collection = admin_db["admins"]
 # Material database
 db = client["Materials_db"]
 collection = db["Materials"]
-
-
-# ====================== FETCH USERS ======================
-
-def convert_user(user):
-    return {
-        "id": str(user["_id"]),
-        "username": user["username"],
-        "email": user["email"],
-        "password": user["password"].decode() if isinstance(user["password"], bytes) else user["password"]
-    }
-
-
-@app.route('/users', methods=['GET'])
-def get_users():
-    users = user_db.users.find()
-    users_list = [convert_user(user) for user in users]
-    return jsonify(users_list)
-
-
-@app.route("/users/<user_id>", methods=["DELETE"])
-def delete_user(user_id):
-    result = users_collection.delete_one({"_id": ObjectId(user_id)})
-    if result.deleted_count == 1:
-        return jsonify({"message": "User deleted successfully"}), 200
-    else:
-        return jsonify({"message": "User not found"}), 404
-    
-
-@app.route('/profile', methods=['GET'])
-@jwt_required()
-def profile():
-    user_email = get_jwt_identity() 
-    user = users_collection.find_one({"email": user_email})
-    if user:
-        return jsonify({
-            "username": user["username"],
-            "email": user["email"]
-        }), 200
-    return jsonify({"msg": "User not found"}), 404
-
-
-# ====================== FETCH MATERIALS ======================
-
-
-def serialize(doc):
-    doc['_id'] = str(doc['_id'])
-    return doc
-
-
-@app.route("/materials", methods=["GET"])
-def get_materials():
-    materials = list(collection.find())
-    return jsonify([serialize(m) for m in materials])
-
-
-@app.route("/materials", methods=["POST"])
-def add_material():
-    data = request.json
-    collection.insert_one(data)
-    return jsonify({"message": "Material added successfully"}), 201
-
-
-@app.route('/materials/<id>', methods=['PUT'], endpoint="update_material")
-def update_material(id):
-    data = request.json
-
-    if '_id' in data:
-        del data['_id']
-
-    result = collection.update_one({"_id": ObjectId(id)}, {"$set": data})
-    
-    if result.matched_count:
-        return jsonify({"message": "Material updated successfully"}), 200
-    else:
-        return jsonify({"error": "Material not found"}), 404
-
-
-@app.route("/materials/<string:id>", methods=["DELETE"])
-def delete_material(id):
-    collection.delete_one({"_id": ObjectId(id)})
-    return jsonify({"message": "Material deleted successfully"})
 
 
 # ====================== USER ROUTES ======================
@@ -174,25 +90,6 @@ def login():
         return jsonify({"message": "An error occurred", "error": str(e)}), 500
 
 
-# Forgot Password (Generate Token)
-@app.route('/forgot-password', methods=['POST'])
-def forgot_password():
-    data = request.json
-    email = data['email']
-
-    user = users_collection.find_one({"email": email})
-    if not user:
-        return jsonify({"message": "Email not found"}), 404
-
-    reset_token = jwt.encode(
-        {"email": email, "exp": datetime.datetime.utcnow() + datetime.timedelta(minutes=15)},
-        app.config['SECRET_KEY'],
-        algorithm="HS256"
-    )
-
-    return jsonify({"message": "Reset token generated", "token": reset_token}), 200
-
-
 # Reset Password
 @app.route('/reset-password', methods=['POST'])
 def reset_password():
@@ -211,25 +108,6 @@ def reset_password():
         return jsonify({"message": "Token expired"}), 400
     except jwt.InvalidTokenError:
         return jsonify({"message": "Invalid token"}), 400
-
-
-# ====================== ADMIN ROUTES ======================
-
-@app.route('/api/login', methods=['POST'])
-def admin_login():
-    data = request.json
-    username = data.get('username')
-    password = data.get('password')
-
-    admin = admin_collection.find_one({"username": username})
-
-    if admin:
-        if bcrypt.checkpw(password.encode('utf-8'), admin['password']):
-            return jsonify({"message": "Login successful", "status": "success"}), 200
-        else:
-            return jsonify({"message": "Incorrect password", "status": "fail"}), 401
-    else:
-        return jsonify({"message": "Admin not found", "status": "fail"}), 404
 
 
 # ====================== RECOMMEND ======================
